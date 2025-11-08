@@ -269,12 +269,65 @@ pub const FuzzInput = struct {
                     return null;
                 }
             },
-            .@"struct" => |struct_info| {},
-            .@"enum" => |enum_info| {},
-            .@"union" => |union_info| {},
-            .vector => |vec_info| {},
-            .error_union => |err_uni_info| {},
-            .error_set => |err_set_info| {},
+            .@"struct" => |struct_info| {
+                if (struct_info.fields.len == 0) {
+                    return T{};
+                }
+
+                var out: T = undefined;
+
+                inline for (struct_info.fields) |field_info| {
+                    @field(out, field_info.name) = try self.auto(field_info.type, alloc);
+                }
+
+                return out;
+            },
+            .@"enum" => |enum_info| {
+                if (enum_info.fields.len == 0) {
+                    return T{};
+                }
+
+                var field_idx: usize = 0;
+
+                const max_idx = enum_info.fields.len;
+                const idx = (try self.int(usize)) % max_idx;
+
+                inline for (enum_info.fields) |field_info| {
+                    if (field_idx == idx) {
+                        return @enumFromInt(field_info.value);
+                    } else {
+                        field_idx += 1;
+                    }
+                }
+            },
+            .@"union" => |union_info| {
+                if (union_info.fields.len == 0) {
+                    return T{};
+                }
+
+                var field_idx: usize = 0;
+
+                const max_idx = union_info.fields.len;
+                const idx = (try self.int(usize)) % max_idx;
+
+                inline for (union_info.fields) |field_info| {
+                    if (field_idx == idx) {
+                        const child = try self.auto(field_info.type, alloc);
+                        return @unionInit(T, field_info.name, child);
+                    } else {
+                        field_idx += 1;
+                    }
+                }
+            },
+            .vector => |vec_info| {
+                return try self.auto_array(vec_info.child, vec_info.len, alloc);
+            },
+            .error_set => {
+                @compileError("error sets aren't supported");
+            },
+            .error_union => {
+                @compileError("error unions aren't supported");
+            },
         }
     }
 };
