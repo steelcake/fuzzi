@@ -121,7 +121,7 @@ pub const FuzzInput = struct {
 
         var out: [N]T = undefined;
         for (0..N) |idx| {
-            out[idx] = try self.auto(T, alloc, max_depth, depth + 1);
+            out[idx] = try self.auto_impl(T, alloc, max_depth, depth + 1);
         }
         return out;
     }

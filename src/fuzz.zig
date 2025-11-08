@@ -9,6 +9,7 @@ const FuzzType = struct {
     nested: ?*const FuzzType,
     nesteds: []const FuzzType,
     nesteds2: []FuzzType,
+    nested_arr: [3]*FuzzType,
     age: u256,
     age2: i128,
     age3: i8,
@@ -42,6 +43,10 @@ fn validate(t: *const FuzzType) void {
     }
 
     for (t.nesteds2) |*n| {
+        validate(n);
+    }
+
+    for (t.nested_arr) |n| {
         validate(n);
     }
 
