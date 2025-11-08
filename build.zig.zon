@@ -1,5 +1,5 @@
 .{
-    .name = .fuzzi,
+    .name = .fuzzin,
     .version = "0.0.1",
     .minimum_zig_version = "0.16.0-dev.732+2f3234c76",
     .paths = .{
@@ -10,5 +10,5 @@
         "LICENSE-APACHE",
         "README.md",
     },
-    .fingerprint = 0x34698058d6959413,
+    .fingerprint = 0x1d8c13941e22880a,
 }

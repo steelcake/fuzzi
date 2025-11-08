@@ -2,7 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const ArenaAllocator = std.heap.ArenaAllocator;
 
-const fuzzi = @import("fuzzi");
+const fuzzin = @import("fuzzin");
 
 /// Type to check if the FuzzInput is able to generate all implemented types properly
 const FuzzType = struct {
@@ -66,10 +66,10 @@ fn fuzz_fuzz(
     ctx: *anyopaque,
     // `FuzzInput` is used to generate structured input for our fuzz function.
     // It generates valid (as far as the type system of the language goes) instances of the requested types.
-    input: *fuzzi.FuzzInput,
+    input: *fuzzin.FuzzInput,
     // debug allocator, this allocator will be reset and checked for leaks after every fuzz run.
     dbg_alloc: Allocator,
-) fuzzi.Error!void {
+) fuzzin.Error!void {
     // check that the context was passed properly;
     std.debug.assert(@as(*u32, @ptrCast(@alignCast(ctx))).* == 69);
 
@@ -91,7 +91,7 @@ test fuzz_fuzz {
     // dummy context to check that it is passed into `fuzz_fuzz` function properly
     var ctx: u32 = 69;
 
-    fuzzi.fuzz_test(
+    fuzzin.fuzz_test(
         // pass the context as `*anyopaque`
         @ptrCast(&ctx),
         // call `fuzz_fuzz` for individual fuzz runs.

@@ -1,4 +1,4 @@
-# fuzzi
+# fuzzin
 
 Utility library for writing fuzz tests in zig.
 

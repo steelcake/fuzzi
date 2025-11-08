@@ -5,7 +5,7 @@ const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const Prng = std.Random.DefaultPrng;
 
 /// Use a separate error type internally so it is easy to coerce from OutOfMemory or similar errors.
-/// Map it to public error type so we can safely ignore fuzzi.Error at the end of fuzzing.
+/// Map it to public error type so we can safely ignore fuzzin.Error at the end of fuzzing.
 ///
 /// If we don't do this user might do something like `try alloc.alloc()` in their fuzz function
 ///     and we would ignore the potential OutOfMemory silently because we are ignoring this error set.

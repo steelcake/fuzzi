@@ -4,7 +4,7 @@ pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
-    const lib_mod = b.addModule("fuzzi", .{
+    const lib_mod = b.addModule("fuzzin", .{
         .root_source_file = b.path("src/root.zig"),
         .target = target,
         .optimize = optimize,
@@ -27,7 +27,7 @@ pub fn build(b: *std.Build) void {
         // https://github.com/ziglang/zig/issues/23423
         .use_llvm = true,
     });
-    fuzz.root_module.addImport("fuzzi", lib_mod);
+    fuzz.root_module.addImport("fuzzin", lib_mod);
 
     const run_fuzz = b.addRunArtifact(fuzz);
 
