@@ -293,7 +293,7 @@ pub const FuzzInput = struct {
         max_depth: u8,
         depth: u8,
     ) InternalErr!T {
-        if (depth == max_depth) {
+        if (depth >= max_depth) {
             return InternalErr.MaxRecursionDepthExceeded;
         }
 

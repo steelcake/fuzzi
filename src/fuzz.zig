@@ -8,9 +8,9 @@ const fuzzin = @import("fuzzin");
 const FuzzType = struct {
     name: [:0]const u8,
     nested: ?*const FuzzType,
-    nesteds: []const FuzzType,
-    nesteds2: []FuzzType,
-    nested_arr: [3]*FuzzType,
+    nesteds: ?[]const FuzzType,
+    nesteds2: ?[]FuzzType,
+    nested_arr: ?[3]*FuzzType,
     age: u256,
     age2: i128,
     age3: i8,
@@ -40,16 +40,22 @@ fn validate(t: *const FuzzType) void {
         validate(n);
     }
 
-    for (t.nesteds) |*n| {
-        validate(n);
+    if (t.nesteds) |*nn| {
+        for (nn.*) |*n| {
+            validate(n);
+        }
     }
 
-    for (t.nesteds2) |*n| {
-        validate(n);
+    if (t.nesteds2) |*nn| {
+        for (nn.*) |*n| {
+            validate(n);
+        }
     }
 
-    for (t.nested_arr) |n| {
-        validate(n);
+    if (t.nested_arr) |x| {
+        for (x) |n| {
+            validate(n);
+        }
     }
 
     std.debug.assert(std.mem.findScalar(u32, &t.arr, 5) == null);
@@ -79,7 +85,7 @@ fn fuzz_fuzz(
     defer arena.deinit();
     const alloc = arena.allocator();
 
-    const MAX_RECURSION_DEPTH = 64;
+    const MAX_RECURSION_DEPTH = 10;
     const t = try input.auto(FuzzType, alloc, MAX_RECURSION_DEPTH);
 
     // Make sure the generated type is valid
