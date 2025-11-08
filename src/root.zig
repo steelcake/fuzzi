@@ -1,9 +1,16 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
 
-pub const Error = error{
+const InternalErr = error{
     OutOfMemory,
     InputTooShort,
+    MaxRecursionDepthExceeded,
+};
+
+pub const Error = error{
+    FuzzInputOutOfMemory,
+    FuzzInputTooShort,
+    FuzzInputMaxRecursionDepthExceeded,
 };
 
 pub const FuzzInput = struct {
@@ -15,10 +22,10 @@ pub const FuzzInput = struct {
         };
     }
 
-    pub fn int(self: *FuzzInput, comptime T: type) Error!T {
+    pub fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
         if (self.data.len < size) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
         const i = std.mem.readVarInt(T, self.data[0..size], .little);
         self.data = self.data[size..];
@@ -27,7 +34,7 @@ pub const FuzzInput = struct {
 
     // Taken from https://github.com/ziglang/zig/blob/852a1f718a306aa0a540c527a0c23d50b9f0db08/lib/std/Random.zig#L295
     // license: https://github.com/ziglang/zig/blob/852a1f718a306aa0a540c527a0c23d50b9f0db08/LICENSE
-    fn float64(self: *FuzzInput) Error!f64 {
+    fn float64(self: *FuzzInput) InternalErr!f64 {
         const rand = try self.int(u64);
         var rand_lz: u64 = @clz(rand);
         if (rand_lz >= 12) {
@@ -51,21 +58,21 @@ pub const FuzzInput = struct {
         return @bitCast(exponent | mantissa);
     }
 
-    pub fn float(self: *FuzzInput, comptime T: type) Error!T {
+    pub fn float(self: *FuzzInput, comptime T: type) InternalErr!T {
         const f = try self.float64();
         return @floatCast(f);
     }
 
-    pub fn boolean(self: *FuzzInput) Error!bool {
+    pub fn boolean(self: *FuzzInput) InternalErr!bool {
         if (self.data.len == 0) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
         const byte = self.data[0];
         self.data = self.data[1..];
         return byte % 2 == 0;
     }
 
-    pub fn slice_len(self: *FuzzInput, comptime ElemT: type) Error!usize {
+    pub fn slice_len(self: *FuzzInput, comptime ElemT: type) InternalErr!usize {
         const len = try self.int(usize);
 
         if (@sizeOf(ElemT) == 0) {
@@ -75,10 +82,14 @@ pub const FuzzInput = struct {
         return len % (self.input.len / @sizeOf(ElemT));
     }
 
-    pub fn int_array(self: *FuzzInput, comptime T: type, comptime N: comptime_int) Error![N]T {
+    pub fn int_array(
+        self: *FuzzInput,
+        comptime T: type,
+        comptime N: comptime_int,
+    ) InternalErr![N]T {
         const needed_bytes = @sizeOf(T) * N;
         if (self.input.len < needed_bytes) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
 
         var out: [N]T = undefined;
@@ -94,10 +105,10 @@ pub const FuzzInput = struct {
         comptime T: type,
         comptime N: comptime_int,
         comptime Sentinel: T,
-    ) Error![N:Sentinel]T {
+    ) InternalErr![N:Sentinel]T {
         const needed_bytes = @sizeOf(T) * N;
         if (self.input.len < needed_bytes) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
 
         var out: [N:Sentinel]T = undefined;
@@ -114,12 +125,14 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    pub fn auto_array(
+    fn auto_array(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
         alloc: Allocator,
-    ) Error![N]T {
+        max_depth: u8,
+        depth: u8,
+    ) InternalErr![N]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array(T, N),
             else => {},
@@ -127,58 +140,64 @@ pub const FuzzInput = struct {
 
         var out: [N]T = undefined;
         for (0..N) |idx| {
-            out[idx] = try self.auto(T, alloc);
+            out[idx] = try self.auto(T, alloc, max_depth, depth + 1);
         }
         return out;
     }
 
-    pub fn auto_array_sentinel(
+    fn auto_array_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
         comptime Sentinel: T,
-    ) Error![N:Sentinel]T {
+    ) InternalErr![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
             else => @compileError("sentinels are only supported for int arrays"),
         }
     }
 
-    pub fn int_slice(
+    fn int_slice(
         self: *FuzzInput,
         comptime T: type,
         len: usize,
         alloc: Allocator,
-    ) Error![]T {
+    ) InternalErr![]T {
         const needed_bytes = @sizeOf(T) * len;
 
         if (needed_bytes > self.input.len) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
 
         const slice = try alloc.alloc(T, len);
-        @memcpy(@as([]u8, @ptrCast(slice)), self.input[0..needed_bytes]);
+        @memcpy(
+            @as([]u8, @ptrCast(slice)),
+            self.input[0..needed_bytes],
+        );
 
         self.input = self.input[needed_bytes..];
 
         return slice;
     }
 
-    pub fn int_slice_sentinel(
+    fn int_slice_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime Sentinel: T,
         len: usize,
         alloc: Allocator,
-    ) Error![:Sentinel]T {
+    ) InternalErr![:Sentinel]T {
         const needed_bytes = @sizeOf(T) * len;
 
         if (needed_bytes > self.input.len) {
-            return Error.InputTooShort;
+            return InternalErr.InputTooShort;
         }
 
         const slice = try alloc.allocSentinel(T, len, Sentinel);
-        @memcpy(@as([]u8, @ptrCast(slice)), self.input[0..needed_bytes]);
+        @memcpy(
+            @as([]u8, @ptrCast(slice)),
+            self.input[0..needed_bytes],
+        );
 
         for (slice) |*s| {
             if (s.* == Sentinel) {
@@ -191,45 +210,94 @@ pub const FuzzInput = struct {
         return slice;
     }
 
-    pub fn auto_slice(
+    fn auto_slice(
         self: *FuzzInput,
         comptime T: type,
         len: usize,
         alloc: Allocator,
-    ) Error![]T {
+        max_depth: u8,
+        depth: u8,
+    ) InternalErr![]T {
         switch (@typeInfo(T)) {
-            .int => return try self.int_slice(self, T, len, alloc),
+            .int => return try self.int_slice(
+                self,
+                T,
+                len,
+                alloc,
+            ),
             else => {},
         }
 
         const slice = try alloc.alloc(T, len);
         for (0..len) |idx| {
-            slice[idx] = try self.auto(T, alloc);
+            slice[idx] = try self.auto(
+                T,
+                alloc,
+                max_depth,
+                depth + 1,
+            );
         }
         return slice;
     }
 
-    pub fn auto_slice_sentinel(
+    fn auto_slice_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime Sentinel: T,
         len: usize,
         alloc: Allocator,
-    ) Error![:Sentinel]T {
+    ) InternalErr![:Sentinel]T {
         switch (@typeInfo(T)) {
-            .int => return try self.int_slice_sentinel(self, T, Sentinel, len, alloc),
+            .int => return try self.int_slice_sentinel(
+                self,
+                T,
+                Sentinel,
+                len,
+                alloc,
+            ),
             else => @compileError("sentinels are only supported for int slices"),
         }
     }
 
-    pub fn auto_ptr(self: *FuzzInput, comptime T: type, alloc: Allocator) Error!*T {
+    fn auto_ptr(
+        self: *FuzzInput,
+        comptime T: type,
+        alloc: Allocator,
+        max_depth: u8,
+        depth: u8,
+    ) InternalErr!*T {
         const p = try alloc.create(T);
-        p.* = try self.auto(T, alloc);
+        p.* = try self.auto(T, alloc, max_depth, depth + 1);
 
         return p;
     }
 
-    pub fn auto(self: *FuzzInput, comptime T: type, alloc: Allocator) Error!T {
+    pub fn auto(
+        self: *FuzzInput,
+        comptime T: type,
+        alloc: Allocator,
+        max_depth: u8,
+    ) Error!T {
+        return self.auto_impl(T, alloc, max_depth, 0) catch |e| {
+            return switch (e) {
+                InternalErr.MaxRecursionDepthExceeded => Error.FuzzInputMaxRecursionDepthExceeded,
+                InternalErr.OutOfMemory => Error.FuzzInputOutOfMemory,
+                InternalErr.InputTooShort => Error.FuzzInputTooShort,
+            };
+        };
+    }
+
+    fn auto_impl(
+        self: *FuzzInput,
+        comptime T: type,
+        alloc: Allocator,
+        max_depth: u8,
+        depth: u8,
+    ) InternalErr!T {
+        if (depth == max_depth) {
+            return InternalErr.MaxRecursionDepthExceeded;
+        }
+
         switch (@typeInfo(T)) {
             .int => return try self.int(T),
             .float => return try self.float(T),
@@ -237,9 +305,20 @@ pub const FuzzInput = struct {
             .bool => return try self.boolean(),
             .array => |arr_info| {
                 if (arr_info.sentinel) |sentinel| {
-                    return try self.auto_array_sentinel(arr_info.child, arr_info.len, sentinel, alloc);
+                    return try self.auto_array_sentinel(
+                        arr_info.child,
+                        arr_info.len,
+                        sentinel,
+                        alloc,
+                    );
                 } else {
-                    return try self.auto_array(arr_info.child, arr_info.len, alloc);
+                    return try self.auto_array(
+                        arr_info.child,
+                        arr_info.len,
+                        alloc,
+                        max_depth,
+                        depth,
+                    );
                 }
             },
             .pointer => |ptr_info| {
@@ -248,15 +327,31 @@ pub const FuzzInput = struct {
                         if (ptr_info.sentinel()) {
                             @compileError("single pointer with sentinel not supported.");
                         }
-                        return try self.auto_ptr(ptr_info.child, alloc);
+                        return try self.auto_ptr(
+                            ptr_info.child,
+                            alloc,
+                            max_depth,
+                            depth,
+                        );
                     },
                     .many => @compileError("many pointers aren't supported"),
                     .slice => {
                         const len = try self.slice_len(ptr_info.child);
                         if (ptr_info.sentinel()) |sentinel| {
-                            return try self.auto_slice_sentinel(ptr_info.child, sentinel, len, alloc);
+                            return try self.auto_slice_sentinel(
+                                ptr_info.child,
+                                sentinel,
+                                len,
+                                alloc,
+                            );
                         } else {
-                            return try self.auto_slice(ptr_info.child, len, alloc);
+                            return try self.auto_slice(
+                                ptr_info.child,
+                                len,
+                                alloc,
+                                max_depth,
+                                depth,
+                            );
                         }
                     },
                     .c => @compileError("c pointers aren't supported"),
@@ -264,7 +359,12 @@ pub const FuzzInput = struct {
             },
             .optional => |opt_info| {
                 if (try self.boolean()) {
-                    return try self.auto(opt_info.child, alloc);
+                    return try self.auto(
+                        opt_info.child,
+                        alloc,
+                        max_depth,
+                        depth + 1,
+                    );
                 } else {
                     return null;
                 }
@@ -277,7 +377,12 @@ pub const FuzzInput = struct {
                 var out: T = undefined;
 
                 inline for (struct_info.fields) |field_info| {
-                    @field(out, field_info.name) = try self.auto(field_info.type, alloc);
+                    @field(out, field_info.name) = try self.auto(
+                        field_info.type,
+                        alloc,
+                        max_depth,
+                        depth + 1,
+                    );
                 }
 
                 return out;
@@ -312,7 +417,12 @@ pub const FuzzInput = struct {
 
                 inline for (union_info.fields) |field_info| {
                     if (field_idx == idx) {
-                        const child = try self.auto(field_info.type, alloc);
+                        const child = try self.auto(
+                            field_info.type,
+                            alloc,
+                            max_depth,
+                            depth + 1,
+                        );
                         return @unionInit(T, field_info.name, child);
                     } else {
                         field_idx += 1;
@@ -320,7 +430,13 @@ pub const FuzzInput = struct {
                 }
             },
             .vector => |vec_info| {
-                return try self.auto_array(vec_info.child, vec_info.len, alloc);
+                return try self.auto_array(
+                    vec_info.child,
+                    vec_info.len,
+                    alloc,
+                    max_depth,
+                    depth + 1,
+                );
             },
             .error_set => {
                 @compileError("error sets aren't supported");
