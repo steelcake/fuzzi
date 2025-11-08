@@ -4,20 +4,55 @@ const DebugAllocator = std.heap.DebugAllocator;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const Prng = std.Random.DefaultPrng;
 
+/// Use a separate error type internally so it is easy to coerce from OutOfMemory or similar errors.
+/// Map it to public error type so we can safely ignore fuzzi.Error at the end of fuzzing.
+///
+/// If we don't do this user might do something like `try alloc.alloc()` in their fuzz function
+///     and we would ignore the potential OutOfMemory silently because we are ignoring this error set.
 const InternalErr = error{
     OutOfMemory,
     InputTooShort,
     MaxRecursionDepthExceeded,
 };
 
+/// Errors that can happen when generating structured fuzz input.
+/// These are intended to be transparently passed on so the fuzzing process
+/// can ignore these errors and continue.
+///
+/// This functionality might cause the actual fuzzing to never run
+///     if the generated type is impossible to generate (could be because of recursion depth).
+/// User can add a `std.debug.assert(try input.int(u8) != 69);` at the end of the fuzz function
+///     to test if the fuzzing is actually able to run.
 pub const Error = error{
     FuzzInputOutOfMemory,
     FuzzInputTooShort,
     FuzzInputMaxRecursionDepthExceeded,
 };
 
+/// Structured fuzz input generator. Creates valid (as far as the language type system goes)
+///     instances requested types.
+///
+/// Example usage can be like `try input.auto([]u128, alloc, 64);`
 pub const FuzzInput = struct {
     input: []const u8,
+
+    /// Generate requested type using the allocator.
+    ///
+    /// Example usage can be like `try input.auto([]u128, alloc, 64);`
+    pub fn auto(
+        self: *FuzzInput,
+        comptime T: type,
+        alloc: Allocator,
+        max_depth: u8,
+    ) Error!T {
+        return self.auto_impl(T, alloc, max_depth, 0) catch |e| {
+            return switch (e) {
+                InternalErr.MaxRecursionDepthExceeded => Error.FuzzInputMaxRecursionDepthExceeded,
+                InternalErr.OutOfMemory => Error.FuzzInputOutOfMemory,
+                InternalErr.InputTooShort => Error.FuzzInputTooShort,
+            };
+        };
+    }
 
     fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
@@ -251,21 +286,6 @@ pub const FuzzInput = struct {
         return p;
     }
 
-    pub fn auto(
-        self: *FuzzInput,
-        comptime T: type,
-        alloc: Allocator,
-        max_depth: u8,
-    ) Error!T {
-        return self.auto_impl(T, alloc, max_depth, 0) catch |e| {
-            return switch (e) {
-                InternalErr.MaxRecursionDepthExceeded => Error.FuzzInputMaxRecursionDepthExceeded,
-                InternalErr.OutOfMemory => Error.FuzzInputOutOfMemory,
-                InternalErr.InputTooShort => Error.FuzzInputTooShort,
-            };
-        };
-    }
-
     fn auto_impl(
         self: *FuzzInput,
         comptime T: type,
@@ -434,6 +454,19 @@ const FuzzContext = struct {
     user_ctx: *anyopaque,
 };
 
+/// Signature for the fuzz function that implements a single run
+///
+/// `ctx` is a user defined parameter to make it possible to pass static arrays or similar
+///     expensive-to-construct structures that would slow the fuzzing too much if they are
+///     constructed for every individual run.
+///
+/// `dbg_alloc` is a debug allocator instance that will be checked for leaks after every run
+///     of the fuzzing function.
+///
+/// This function is expected to never pass actual failure errors. It should only propagate the
+///     errors coming from `input.auto` or any other input generation related errors.
+///
+/// This function should handle failures by doing something lile `maybe_fail() catch unreachable;`
 pub const FuzzOne = *const fn (
     ctx: *anyopaque,
     input: *FuzzInput,
@@ -468,6 +501,22 @@ fn test_one(
     };
 }
 
+/// Take the parameters and start a fuzz test. This function will internally call
+///     `impl` with different fuzz inputs.
+///
+/// `ctx` will be passed into the `impl` function for every run so it can have a user defined context.
+///
+/// `ctx` is a user defined parameter to make it possible to pass static arrays or similar
+///     expensive-to-construct structures that would slow the fuzzing too much if they are
+///     constructed for every individual run.
+///
+/// `alloc_cap` is the amount of memory that will be allocated once and will be made available to the `impl`
+///     function for every run, in the form of a `std.heap.DebugAllocator`.
+///
+/// `impl` function is expected to never pass actual failure errors. It should only propagate the
+///     errors coming from `input.auto` or any other input generation related errors.
+///
+/// `impl` should handle failures by doing something lile `maybe_fail() catch unreachable;`
 pub fn fuzz_test(ctx: *anyopaque, impl: FuzzOne, alloc_cap: usize) void {
     const mem = std.heap.page_allocator.alloc(u8, alloc_cap) catch unreachable;
     defer std.heap.page_allocator.free(mem);

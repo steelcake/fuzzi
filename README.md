@@ -4,6 +4,9 @@ Utility library for writing fuzz tests in zig.
 
 - Input-generation
 - Allocation
+- Context passing
+
+See [fuzz.zig](./src/fuzz.zig) for example usage.
 
 ## License
 
