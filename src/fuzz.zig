@@ -1,15 +1,25 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const ArenaAllocator = std.heap.ArenaAllocator;
 
 const fuzzi = @import("fuzzi");
 
-fn fuzz_kaboom(ctx: *anyopaque, input: *fuzzi.FuzzInput, dbg_alloc: Allocator) fuzzi.Error!void {
-    _ = ctx;
-    _ = input;
-    _ = dbg_alloc;
+const FuzzType = struct {
+    name: [:0]const u8,
+};
+
+fn fuzz_fuzz(ctx: *anyopaque, input: *fuzzi.FuzzInput, dbg_alloc: Allocator) fuzzi.Error!void {
+    std.debug.assert(@as(*u32, @ptrCast(@alignCast(ctx))).* == 69);
+
+    var arena = ArenaAllocator.init(dbg_alloc);
+    defer arena.deinit();
+    const alloc = arena.allocator();
+
+    const MAX_RECURSION_DEPTH = 64;
+    _ = try input.auto(FuzzType, alloc, MAX_RECURSION_DEPTH);
 }
 
-test fuzz_kaboom {
+test fuzz_fuzz {
     var ctx: u32 = 69;
-    fuzzi.fuzz_test(@ptrCast(&ctx), fuzz_kaboom, 1024);
+    fuzzi.fuzz_test(@ptrCast(&ctx), fuzz_fuzz, 1 << 20);
 }

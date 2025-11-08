@@ -18,13 +18,13 @@ pub const Error = error{
 pub const FuzzInput = struct {
     input: []const u8,
 
-    pub fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
+    fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
-        if (self.data.len < size) {
+        if (self.input.len < size) {
             return InternalErr.InputTooShort;
         }
-        const i = std.mem.readVarInt(T, self.data[0..size], .little);
-        self.data = self.data[size..];
+        const i = std.mem.readVarInt(T, self.input[0..size], .little);
+        self.input = self.input[size..];
         return i;
     }
 
@@ -54,31 +54,35 @@ pub const FuzzInput = struct {
         return @bitCast(exponent | mantissa);
     }
 
-    pub fn float(self: *FuzzInput, comptime T: type) InternalErr!T {
+    fn float(self: *FuzzInput, comptime T: type) InternalErr!T {
         const f = try self.float64();
         return @floatCast(f);
     }
 
-    pub fn boolean(self: *FuzzInput) InternalErr!bool {
-        if (self.data.len == 0) {
+    fn boolean(self: *FuzzInput) InternalErr!bool {
+        if (self.input.len == 0) {
             return InternalErr.InputTooShort;
         }
-        const byte = self.data[0];
-        self.data = self.data[1..];
+        const byte = self.input[0];
+        self.input = self.input[1..];
         return byte % 2 == 0;
     }
 
-    pub fn slice_len(self: *FuzzInput, comptime ElemT: type) InternalErr!usize {
+    fn slice_len(self: *FuzzInput, comptime ElemT: type) InternalErr!usize {
         const len = try self.int(usize);
 
         if (@sizeOf(ElemT) == 0) {
             return len;
         }
 
+        if (@sizeOf(ElemT) > self.input.len) {
+            return InternalErr.InputTooShort;
+        }
+
         return len % (self.input.len / @sizeOf(ElemT));
     }
 
-    pub fn int_array(
+    fn int_array(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
@@ -96,7 +100,7 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    pub fn int_array_sentinel(
+    fn int_array_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
@@ -149,7 +153,7 @@ pub const FuzzInput = struct {
     ) InternalErr![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
-            else => @compileError("sentinels are only supported for int arrays"),
+            else => comptime unreachable,
         }
     }
 
@@ -245,13 +249,12 @@ pub const FuzzInput = struct {
     ) InternalErr![:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_slice_sentinel(
-                self,
                 T,
                 Sentinel,
                 len,
                 alloc,
             ),
-            else => @compileError("sentinels are only supported for int slices"),
+            else => comptime unreachable,
         }
     }
 
@@ -321,7 +324,7 @@ pub const FuzzInput = struct {
                 switch (ptr_info.size) {
                     .one => {
                         if (ptr_info.sentinel()) {
-                            @compileError("single pointer with sentinel not supported.");
+                            comptime unreachable;
                         }
                         return try self.auto_ptr(
                             ptr_info.child,
@@ -330,7 +333,7 @@ pub const FuzzInput = struct {
                             depth,
                         );
                     },
-                    .many => @compileError("many pointers aren't supported"),
+                    .many => comptime unreachable,
                     .slice => {
                         const len = try self.slice_len(ptr_info.child);
                         if (ptr_info.sentinel()) |sentinel| {
@@ -350,7 +353,7 @@ pub const FuzzInput = struct {
                             );
                         }
                     },
-                    .c => @compileError("c pointers aren't supported"),
+                    .c => comptime unreachable,
                 }
             },
             .optional => |opt_info| {
@@ -373,7 +376,7 @@ pub const FuzzInput = struct {
                 var out: T = undefined;
 
                 inline for (struct_info.fields) |field_info| {
-                    @field(out, field_info.name) = try self.auto(
+                    @field(out, field_info.name) = try self.auto_impl(
                         field_info.type,
                         alloc,
                         max_depth,
@@ -435,11 +438,12 @@ pub const FuzzInput = struct {
                 );
             },
             .error_set => {
-                @compileError("error sets aren't supported");
+                comptime unreachable;
             },
             .error_union => {
-                @compileError("error unions aren't supported");
+                comptime unreachable;
             },
+            else => comptime unreachable,
         }
     }
 };
