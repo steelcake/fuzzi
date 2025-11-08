@@ -450,12 +450,12 @@ const FuzzContext = struct {
     user_ctx: *anyopaque,
 };
 
-pub const FuzzOne = *const fn (ctx: *anyopaque, input: *FuzzInput, dbg_alloc: Allocator) Error;
+pub const FuzzOne = *const fn (ctx: *anyopaque, input: *FuzzInput, dbg_alloc: Allocator) Error!void;
 
 fn test_one(
     ctx: FuzzContext,
     input: []const u8,
-) void {
+) anyerror!void {
     ctx.fb_alloc.reset();
 
     var dbg_allocator = DebugAllocator(.{
@@ -468,7 +468,7 @@ fn test_one(
         switch (dbg_allocator.deinit()) {
             .ok => {},
             .leak => |leak| {
-                std.debug.panic("LEAK: {any}", leak);
+                std.debug.panic("LEAK: {any}", .{leak});
             },
         }
     }
@@ -481,7 +481,7 @@ fn test_one(
 }
 
 pub fn fuzz_test(ctx: *anyopaque, impl: FuzzOne, alloc_cap: usize) void {
-    const mem = std.heap.page_allocator.alloc(u8, alloc_cap);
+    const mem = std.heap.page_allocator.alloc(u8, alloc_cap) catch unreachable;
     defer std.heap.page_allocator.free(mem);
 
     var fb_alloc = FixedBufferAllocator.init(mem);
