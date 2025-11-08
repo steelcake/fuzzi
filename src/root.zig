@@ -1,5 +1,7 @@
 const std = @import("std");
 const Allocator = std.mem.Allocator;
+const DebugAllocator = std.heap.DebugAllocator;
+const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 
 const InternalErr = error{
     OutOfMemory,
@@ -15,12 +17,6 @@ pub const Error = error{
 
 pub const FuzzInput = struct {
     input: []const u8,
-
-    pub fn init(input: []const u8) FuzzInput {
-        return .{
-            .input = input,
-        };
-    }
 
     pub fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
@@ -447,3 +443,51 @@ pub const FuzzInput = struct {
         }
     }
 };
+
+const FuzzContext = struct {
+    fb_alloc: *FixedBufferAllocator,
+    impl: FuzzOne,
+};
+
+pub const FuzzOne = *const fn (input: *FuzzInput, dbg_alloc: Allocator) Error;
+
+fn test_one(
+    ctx: FuzzContext,
+    input: []const u8,
+) void {
+    ctx.fb_alloc.reset();
+
+    var dbg_allocator = DebugAllocator(.{
+        .backing_allocator_zeroes = false,
+    }){
+        .backing_allocator = ctx.fb_alloc.allocator(),
+    };
+    const dbg_alloc = dbg_allocator.allocator();
+    defer {
+        switch (dbg_allocator.deinit()) {
+            .ok => {},
+            .leak => |leak| {
+                std.debug.panic("LEAK: {any}", leak);
+            },
+        }
+    }
+
+    var fuzz_input = FuzzInput{ .input = input };
+
+    ctx.impl(&fuzz_input, dbg_alloc) catch {
+        return;
+    };
+}
+
+pub fn fuzz_test(impl: FuzzOne, alloc_cap: usize) void {
+    const mem = std.heap.page_allocator.alloc(u8, alloc_cap);
+    defer std.heap.page_allocator.free(mem);
+
+    var fb_alloc = FixedBufferAllocator.init(mem);
+
+    std.testing.fuzz(
+        FuzzContext{ .impl = impl, .fb_alloc = &fb_alloc },
+        test_one,
+        .{},
+    ) catch unreachable;
+}
