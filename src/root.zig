@@ -2,6 +2,7 @@ const std = @import("std");
 const Allocator = std.mem.Allocator;
 const DebugAllocator = std.heap.DebugAllocator;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
+const Prng = std.Random.DefaultPrng;
 
 const InternalErr = error{
     OutOfMemory,
@@ -28,30 +29,10 @@ pub const FuzzInput = struct {
         return i;
     }
 
-    // Taken from https://github.com/ziglang/zig/blob/852a1f718a306aa0a540c527a0c23d50b9f0db08/lib/std/Random.zig#L295
-    // license: https://github.com/ziglang/zig/blob/852a1f718a306aa0a540c527a0c23d50b9f0db08/LICENSE
     fn float64(self: *FuzzInput) InternalErr!f64 {
-        const rand = try self.int(u64);
-        var rand_lz: u64 = @clz(rand);
-        if (rand_lz >= 12) {
-            rand_lz = 12;
-            while (true) {
-                // It is astronomically unlikely for this loop to execute more than once.
-                const addl_rand_lz = @clz(try self.int(u64));
-                rand_lz += addl_rand_lz;
-                if (addl_rand_lz != 64) {
-                    @branchHint(.likely);
-                    break;
-                }
-                if (rand_lz >= 1022) {
-                    rand_lz = 1022;
-                    break;
-                }
-            }
-        }
-        const mantissa = rand & 0xFFFFFFFFFFFFF;
-        const exponent = (1022 - rand_lz) << 52;
-        return @bitCast(exponent | mantissa);
+        const seed = try self.int(u64);
+        var prng = Prng.init(seed);
+        return prng.random().float(f64);
     }
 
     fn float(self: *FuzzInput, comptime T: type) InternalErr!T {
@@ -114,9 +95,9 @@ pub const FuzzInput = struct {
         var out: [N:Sentinel]T = undefined;
         @memcpy(@as([]u8, @ptrCast(&out)), self.input[0..needed_bytes]);
 
-        for (out) |*o| {
-            if (o.* == Sentinel) {
-                o.* +%= 1;
+        for (0..N) |idx| {
+            if (out[idx] == Sentinel) {
+                out[idx] +%= 1;
             }
         }
 
@@ -153,7 +134,7 @@ pub const FuzzInput = struct {
     ) InternalErr![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
-            else => comptime unreachable,
+            else => unreachable,
         }
     }
 
@@ -220,7 +201,6 @@ pub const FuzzInput = struct {
     ) InternalErr![]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_slice(
-                self,
                 T,
                 len,
                 alloc,
@@ -230,7 +210,7 @@ pub const FuzzInput = struct {
 
         const slice = try alloc.alloc(T, len);
         for (0..len) |idx| {
-            slice[idx] = try self.auto(
+            slice[idx] = try self.auto_impl(
                 T,
                 alloc,
                 max_depth,
@@ -254,7 +234,7 @@ pub const FuzzInput = struct {
                 len,
                 alloc,
             ),
-            else => comptime unreachable,
+            else => unreachable,
         }
     }
 
@@ -266,7 +246,7 @@ pub const FuzzInput = struct {
         depth: u8,
     ) InternalErr!*T {
         const p = try alloc.create(T);
-        p.* = try self.auto(T, alloc, max_depth, depth + 1);
+        p.* = try self.auto_impl(T, alloc, max_depth, depth + 1);
 
         return p;
     }
@@ -303,12 +283,11 @@ pub const FuzzInput = struct {
             .void => return {},
             .bool => return try self.boolean(),
             .array => |arr_info| {
-                if (arr_info.sentinel) |sentinel| {
+                if (arr_info.sentinel()) |sentinel| {
                     return try self.auto_array_sentinel(
                         arr_info.child,
                         arr_info.len,
                         sentinel,
-                        alloc,
                     );
                 } else {
                     return try self.auto_array(
@@ -323,9 +302,6 @@ pub const FuzzInput = struct {
             .pointer => |ptr_info| {
                 switch (ptr_info.size) {
                     .one => {
-                        if (ptr_info.sentinel()) {
-                            comptime unreachable;
-                        }
                         return try self.auto_ptr(
                             ptr_info.child,
                             alloc,
@@ -333,7 +309,7 @@ pub const FuzzInput = struct {
                             depth,
                         );
                     },
-                    .many => comptime unreachable,
+                    .many => unreachable,
                     .slice => {
                         const len = try self.slice_len(ptr_info.child);
                         if (ptr_info.sentinel()) |sentinel| {
@@ -353,12 +329,12 @@ pub const FuzzInput = struct {
                             );
                         }
                     },
-                    .c => comptime unreachable,
+                    .c => unreachable,
                 }
             },
             .optional => |opt_info| {
                 if (try self.boolean()) {
-                    return try self.auto(
+                    return try self.auto_impl(
                         opt_info.child,
                         alloc,
                         max_depth,
@@ -403,6 +379,8 @@ pub const FuzzInput = struct {
                         field_idx += 1;
                     }
                 }
+
+                unreachable;
             },
             .@"union" => |union_info| {
                 if (union_info.fields.len == 0) {
@@ -416,7 +394,7 @@ pub const FuzzInput = struct {
 
                 inline for (union_info.fields) |field_info| {
                     if (field_idx == idx) {
-                        const child = try self.auto(
+                        const child = try self.auto_impl(
                             field_info.type,
                             alloc,
                             max_depth,
@@ -427,6 +405,8 @@ pub const FuzzInput = struct {
                         field_idx += 1;
                     }
                 }
+
+                unreachable;
             },
             .vector => |vec_info| {
                 return try self.auto_array(
@@ -438,12 +418,12 @@ pub const FuzzInput = struct {
                 );
             },
             .error_set => {
-                comptime unreachable;
+                unreachable;
             },
             .error_union => {
-                comptime unreachable;
+                unreachable;
             },
-            else => comptime unreachable,
+            else => unreachable,
         }
     }
 };
@@ -454,7 +434,11 @@ const FuzzContext = struct {
     user_ctx: *anyopaque,
 };
 
-pub const FuzzOne = *const fn (ctx: *anyopaque, input: *FuzzInput, dbg_alloc: Allocator) Error!void;
+pub const FuzzOne = *const fn (
+    ctx: *anyopaque,
+    input: *FuzzInput,
+    dbg_alloc: Allocator,
+) Error!void;
 
 fn test_one(
     ctx: FuzzContext,
