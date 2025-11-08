@@ -169,7 +169,7 @@ pub const FuzzInput = struct {
     ) InternalErr![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
-            else => unreachable,
+            else => @compileError("sentinels aren't supported for non-integer arrays"),
         }
     }
 
@@ -269,7 +269,7 @@ pub const FuzzInput = struct {
                 len,
                 alloc,
             ),
-            else => unreachable,
+            else => @compileError("sentinels aren't supported for non-integer slices"),
         }
     }
 
@@ -329,7 +329,7 @@ pub const FuzzInput = struct {
                             depth,
                         );
                     },
-                    .many => unreachable,
+                    .many => @compileError("many-pointer isn't supported"),
                     .slice => {
                         const len = try self.slice_len(ptr_info.child);
                         if (ptr_info.sentinel()) |sentinel| {
@@ -349,7 +349,7 @@ pub const FuzzInput = struct {
                             );
                         }
                     },
-                    .c => unreachable,
+                    .c => @compileError("c pointers aren't supported"),
                 }
             },
             .optional => |opt_info| {
@@ -400,7 +400,7 @@ pub const FuzzInput = struct {
                     }
                 }
 
-                unreachable;
+                @panic("enum variant not found. this should never happen");
             },
             .@"union" => |union_info| {
                 if (union_info.fields.len == 0) {
@@ -426,7 +426,7 @@ pub const FuzzInput = struct {
                     }
                 }
 
-                unreachable;
+                @panic("union variant not found. this should never happen");
             },
             .vector => |vec_info| {
                 return try self.auto_array(
@@ -438,12 +438,12 @@ pub const FuzzInput = struct {
                 );
             },
             .error_set => {
-                unreachable;
+                @compileError("error sets aren't supported");
             },
             .error_union => {
-                unreachable;
+                @compileError("error unions aren't supported");
             },
-            else => unreachable,
+            else => @compileError("unsupported type"),
         }
     }
 };
