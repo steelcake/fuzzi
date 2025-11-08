@@ -447,9 +447,10 @@ pub const FuzzInput = struct {
 const FuzzContext = struct {
     fb_alloc: *FixedBufferAllocator,
     impl: FuzzOne,
+    user_ctx: *anyopaque,
 };
 
-pub const FuzzOne = *const fn (input: *FuzzInput, dbg_alloc: Allocator) Error;
+pub const FuzzOne = *const fn (ctx: *anyopaque, input: *FuzzInput, dbg_alloc: Allocator) Error;
 
 fn test_one(
     ctx: FuzzContext,
@@ -474,19 +475,23 @@ fn test_one(
 
     var fuzz_input = FuzzInput{ .input = input };
 
-    ctx.impl(&fuzz_input, dbg_alloc) catch {
+    ctx.impl(ctx.user_ctx, &fuzz_input, dbg_alloc) catch {
         return;
     };
 }
 
-pub fn fuzz_test(impl: FuzzOne, alloc_cap: usize) void {
+pub fn fuzz_test(ctx: *anyopaque, impl: FuzzOne, alloc_cap: usize) void {
     const mem = std.heap.page_allocator.alloc(u8, alloc_cap);
     defer std.heap.page_allocator.free(mem);
 
     var fb_alloc = FixedBufferAllocator.init(mem);
 
     std.testing.fuzz(
-        FuzzContext{ .impl = impl, .fb_alloc = &fb_alloc },
+        FuzzContext{
+            .impl = impl,
+            .fb_alloc = &fb_alloc,
+            .user_ctx = ctx,
+        },
         test_one,
         .{},
     ) catch unreachable;
