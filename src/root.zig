@@ -103,6 +103,12 @@ pub const FuzzInput = struct {
         var out: [N:Sentinel]T = undefined;
         @memcpy(@as([]u8, @ptrCast(&out)), self.input[0..needed_bytes]);
 
+        for (out) |*o| {
+            if (o.* == Sentinel) {
+                o.* +%= 1;
+            }
+        }
+
         self.input = self.input[needed_bytes..];
 
         return out;
@@ -131,18 +137,11 @@ pub const FuzzInput = struct {
         comptime T: type,
         comptime N: comptime_int,
         comptime Sentinel: T,
-        alloc: Allocator,
     ) Error![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
-            else => {},
+            else => @compileError("sentinels are only supported for int arrays"),
         }
-
-        var out: [N:Sentinel]T = undefined;
-        for (0..N) |idx| {
-            out[idx] = try self.auto(T, alloc);
-        }
-        return out;
     }
 
     pub fn int_slice(
@@ -181,6 +180,12 @@ pub const FuzzInput = struct {
         const slice = try alloc.allocSentinel(T, len, Sentinel);
         @memcpy(@as([]u8, @ptrCast(slice)), self.input[0..needed_bytes]);
 
+        for (slice) |*s| {
+            if (s.* == Sentinel) {
+                s.* +%= 1;
+            }
+        }
+
         self.input = self.input[needed_bytes..];
 
         return slice;
@@ -213,14 +218,8 @@ pub const FuzzInput = struct {
     ) Error![:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_slice_sentinel(self, T, Sentinel, len, alloc),
-            else => {},
+            else => @compileError("sentinels are only supported for int slices"),
         }
-
-        const slice = try alloc.allocSentinel(T, len, Sentinel);
-        for (0..len) |idx| {
-            slice[idx] = try self.auto(T, alloc);
-        }
-        return slice;
     }
 
     pub fn auto_ptr(self: *FuzzInput, comptime T: type, alloc: Allocator) Error!*T {
