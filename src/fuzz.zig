@@ -29,6 +29,8 @@ const FuzzType = struct {
     floa: f16,
     floatt: f32,
     floatttt: f64,
+    bools: []bool,
+    bools2: [15]bool,
     arr: [69:5]u32,
 };
 
