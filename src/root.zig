@@ -67,6 +67,13 @@ pub const FuzzInput = struct {
         return out;
     }
 
+    /// Consume all remaining bytes of fuzz input
+    pub fn all_bytes(self: *FuzzInput) []const u8 {
+        const out = self.input;
+        self.input = &.{};
+        return out;
+    }
+
     fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
         if (self.input.len < size) {

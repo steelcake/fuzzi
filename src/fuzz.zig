@@ -96,6 +96,9 @@ fn fuzz_fuzz(
     // kaboom
     // enable to check if everything is running properly and the fuzzer is able to crash
     // std.debug.assert((try input.bytes(32))[31] != 69);
+    //
+
+    _ = input.all_bytes();
 }
 
 // This is how we trigger the fuzz testing
