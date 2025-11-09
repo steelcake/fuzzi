@@ -54,14 +54,29 @@ pub const FuzzInput = struct {
         };
     }
 
+    /// Consume the next `len` bytes from fuzz input
+    pub fn bytes(self: *FuzzInput, len: usize) Error![]const u8 {
+        if (self.input.len < len) {
+            return Error.FuzzInputTooShort;
+        }
+
+        const out = self.input.ptr[0..len];
+
+        self.input = self.input[len..];
+
+        return out;
+    }
+
     fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
         const size = @sizeOf(T);
         if (self.input.len < size) {
             return InternalErr.InputTooShort;
         }
-        const i = std.mem.readVarInt(T, self.input[0..size], .little);
+
+        const out: T = @bitCast(@as(*const [size]u8, @ptrCast(self.input.ptr)).*);
         self.input = self.input[size..];
-        return i;
+
+        return out;
     }
 
     fn float64(self: *FuzzInput) InternalErr!f64 {
@@ -79,7 +94,7 @@ pub const FuzzInput = struct {
         if (self.input.len == 0) {
             return InternalErr.InputTooShort;
         }
-        const byte = self.input[0];
+        const byte = self.input.ptr[0];
         self.input = self.input[1..];
         return byte % 2 == 0;
     }
@@ -108,12 +123,13 @@ pub const FuzzInput = struct {
             return InternalErr.InputTooShort;
         }
 
-        var out: [N]T = undefined;
-        @memcpy(@as([]u8, @ptrCast(&out)), self.input[0..needed_bytes]);
-
+        const out: [needed_bytes]u8 align(@sizeOf(T)) = @as(
+            *const [needed_bytes]u8,
+            @ptrCast(self.input.ptr),
+        ).*;
         self.input = self.input[needed_bytes..];
 
-        return out;
+        return @bitCast(out);
     }
 
     fn int_array_sentinel(
