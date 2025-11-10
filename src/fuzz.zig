@@ -39,11 +39,19 @@ fn FuzzTest(comptime T: type) type {
 
 test {
     _ = example;
+    _ = FuzzTest(i8);
+    _ = FuzzTest(u8);
     _ = FuzzTest(i256);
+    _ = FuzzTest(u256);
     _ = FuzzTest(f16);
+    _ = FuzzTest(f32);
+    _ = FuzzTest(f64);
+    _ = FuzzTest(void);
     _ = FuzzTest(bool);
+    _ = FuzzTest([1]bool);
     _ = FuzzTest([1]u8);
     _ = FuzzTest([1:2]u8);
+    _ = FuzzTest([2][:0]const u8);
     _ = FuzzTest([]i16);
     _ = FuzzTest(?u8);
     _ = FuzzTest(struct {
@@ -51,6 +59,6 @@ test {
         age: i128,
     });
     _ = FuzzTest(enum { x, y });
-    _ = FuzzTest(union(enum) { x: u8, y: [:3]u8 });
+    _ = FuzzTest(union(enum) { x: u8, y: [5:3]u8 });
     _ = FuzzTest(@Vector(4, f32));
 }

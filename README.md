@@ -9,6 +9,13 @@ It provides:
 
 See [example.zig](./src/example.zig) for example usage.
 
+See [Makefile](./Makefile) for example command to run fuzz tests.
+
+See [build.zig](./build.zig) for example fuzz target setup.
+
+Run with `-Doptimize=ReleaseSafe` to do fuzzing effectively. But switch to
+`-Doptimize=Debug` when a crash is found since the stack traces in `ReleaseSafe` aren't accurate.
+
 ## License
 
 Licensed under either of
