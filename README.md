@@ -2,11 +2,12 @@
 
 Utility library for writing fuzz tests in zig.
 
-- Input-generation
-- Allocation
-- Context passing
+It provides:
+- Structured input generation.
+- Leak checking allocator. 
+- Static context.
 
-See [fuzz.zig](./src/fuzz.zig) for example usage.
+See [example.zig](./src/example.zig) for example usage.
 
 ## License
 

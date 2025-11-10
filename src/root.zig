@@ -471,56 +471,45 @@ pub const FuzzInput = struct {
     }
 };
 
-const FuzzContext = struct {
-    fb_alloc: *FixedBufferAllocator,
-    impl: FuzzOne,
-    user_ctx: *anyopaque,
-};
+fn FuzzContext(comptime UserContext: type) type {
+    return struct {
+        const Self = @This();
 
-/// Signature for the fuzz function that implements a single run
-///
-/// `ctx` is a user defined parameter to make it possible to pass static arrays or similar
-///     expensive-to-construct structures that would slow the fuzzing too much if they are
-///     constructed for every individual run.
-///
-/// `dbg_alloc` is a debug allocator instance that will be checked for leaks after every run
-///     of the fuzzing function.
-///
-/// This function is expected to never pass actual failure errors. It should only propagate the
-///     errors coming from `input.auto` or any other input generation related errors.
-///
-/// This function should handle failures by doing something lile `maybe_fail() catch unreachable;`
-pub const FuzzOne = *const fn (
-    ctx: *anyopaque,
-    input: *FuzzInput,
-    dbg_alloc: Allocator,
-) Error!void;
+        fb_alloc: *FixedBufferAllocator,
+        impl: *const fn (
+            ctx: UserContext,
+            input: *FuzzInput,
+            dbg_alloc: Allocator,
+        ) Error!void,
+        user_ctx: UserContext,
 
-fn test_one(
-    ctx: FuzzContext,
-    input: []const u8,
-) anyerror!void {
-    ctx.fb_alloc.reset();
+        fn test_one(
+            self: Self,
+            input: []const u8,
+        ) anyerror!void {
+            self.fb_alloc.reset();
 
-    var dbg_allocator = DebugAllocator(.{
-        .backing_allocator_zeroes = false,
-    }){
-        .backing_allocator = ctx.fb_alloc.allocator(),
-    };
-    const dbg_alloc = dbg_allocator.allocator();
-    defer {
-        switch (dbg_allocator.deinit()) {
-            .ok => {},
-            .leak => |leak| {
-                std.debug.panic("LEAK: {any}", .{leak});
-            },
+            var dbg_allocator = DebugAllocator(.{
+                .backing_allocator_zeroes = false,
+            }){
+                .backing_allocator = self.fb_alloc.allocator(),
+            };
+            const dbg_alloc = dbg_allocator.allocator();
+            defer {
+                switch (dbg_allocator.deinit()) {
+                    .ok => {},
+                    .leak => |leak| {
+                        std.debug.panic("LEAK: {any}", .{leak});
+                    },
+                }
+            }
+
+            var fuzz_input = FuzzInput{ .input = input };
+
+            self.impl(self.user_ctx, &fuzz_input, dbg_alloc) catch {
+                return;
+            };
         }
-    }
-
-    var fuzz_input = FuzzInput{ .input = input };
-
-    ctx.impl(ctx.user_ctx, &fuzz_input, dbg_alloc) catch {
-        return;
     };
 }
 
@@ -539,20 +528,32 @@ fn test_one(
 /// `impl` function is expected to never pass actual failure errors. It should only propagate the
 ///     errors coming from `input.auto` or any other input generation related errors.
 ///
-/// `impl` should handle failures by doing something lile `maybe_fail() catch unreachable;`
-pub fn fuzz_test(ctx: *anyopaque, impl: FuzzOne, alloc_cap: usize) void {
+/// `impl` should handle failures by doing something lile `maybe_fail() catch unreachable;` so
+///     it crashes the fuzzing process with the error.
+pub fn fuzz_test(
+    comptime Context: type,
+    ctx: Context,
+    impl: *const fn (
+        ctx: Context,
+        input: *FuzzInput,
+        dbg_alloc: Allocator,
+    ) Error!void,
+    alloc_cap: usize,
+) void {
+    const Ctx = FuzzContext(Context);
+
     const mem = std.heap.page_allocator.alloc(u8, alloc_cap) catch unreachable;
     defer std.heap.page_allocator.free(mem);
 
     var fb_alloc = FixedBufferAllocator.init(mem);
 
     std.testing.fuzz(
-        FuzzContext{
+        Ctx{
             .impl = impl,
             .fb_alloc = &fb_alloc,
             .user_ctx = ctx,
         },
-        test_one,
+        Ctx.test_one,
         .{},
     ) catch unreachable;
 }
