@@ -109,7 +109,7 @@ test {
 
     fuzzin.fuzz_test(
         *u32,
-        // pass the context as `*anyopaque`
+        // pass the context
         &ctx,
         // call `fuzz_fuzz` for individual fuzz runs.
         fuzz_fuzz,
