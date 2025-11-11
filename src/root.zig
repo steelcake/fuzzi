@@ -18,13 +18,32 @@ pub const Error = error{
     FuzzInputMaxRecursionDepthExceeded,
 };
 
-/// use like `try try_oom(alloc.alloc())`
-/// to convert the `OutOfMemory` error to `fuzzin.Error`
-pub fn try_oom(res: anytype) Error!@typeInfo(@TypeOf(res)).error_union.payload {
-    if (@typeInfo(@TypeOf(res)).error_union.error_set != error{OutOfMemory}) {
-        @compileError("try_oom is only supported for functions that error with OutOfMemory only.");
-    }
-    return res catch |e| {
+/// same as `alloc.alloc` but maps the error to `fuzzin.Error`
+pub fn allocate(comptime T: type, len: usize, alloc: Allocator) Error![]T {
+    return alloc.alloc(T, len) catch |e| {
+        switch (e) {
+            error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+        }
+    };
+}
+
+/// same as `alloc.allocSentinel` but maps the error to `fuzzin.Error`
+pub fn allocate_sentinel(
+    comptime T: type,
+    comptime sentinel: T,
+    len: usize,
+    alloc: Allocator,
+) Error![:sentinel]T {
+    return alloc.allocSentinel(T, len, sentinel) catch |e| {
+        switch (e) {
+            error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+        }
+    };
+}
+
+/// same as `alloc.create` but maps the error to `fuzzin.Error`
+pub fn create(comptime T: type, alloc: Allocator) Error!*T {
+    return alloc.create(T) catch |e| {
         switch (e) {
             error.OutOfMemory => return Error.FuzzInputOutOfMemory,
         }
@@ -204,7 +223,7 @@ pub const FuzzInput = struct {
             return Error.FuzzInputTooShort;
         }
 
-        const slice = try try_oom(alloc.alloc(T, len));
+        const slice = try allocate(T, len, alloc);
 
         @memcpy(
             @as([]u8, @ptrCast(slice)),
@@ -229,7 +248,7 @@ pub const FuzzInput = struct {
             return Error.FuzzInputTooShort;
         }
 
-        const slice = try try_oom(alloc.allocSentinel(T, len, Sentinel));
+        const slice = try allocate_sentinel(T, Sentinel, len, alloc);
         @memcpy(
             @as([]u8, @ptrCast(slice)),
             self.input[0..needed_bytes],
@@ -263,7 +282,7 @@ pub const FuzzInput = struct {
             else => {},
         }
 
-        const slice = try try_oom(alloc.alloc(T, len));
+        const slice = try allocate(T, len, alloc);
 
         for (0..len) |idx| {
             slice[idx] = try self.auto_impl(
@@ -301,7 +320,7 @@ pub const FuzzInput = struct {
         max_depth: u8,
         depth: u8,
     ) Error!*T {
-        const p = try try_oom(alloc.create(T));
+        const p = try create(T, alloc);
 
         p.* = try self.auto_impl(T, alloc, max_depth, depth + 1);
 
