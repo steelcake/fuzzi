@@ -1,6 +1,6 @@
 .{
     .name = .fuzzin,
-    .version = "0.0.8",
+    .version = "0.0.9",
     .minimum_zig_version = "0.16.0-dev.732+2f3234c76",
     .paths = .{
         "build.zig",

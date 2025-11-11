@@ -179,7 +179,7 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    fn auto_array(
+    pub fn auto_array(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
@@ -199,7 +199,7 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    fn auto_array_sentinel(
+    pub fn auto_array_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
@@ -211,7 +211,7 @@ pub const FuzzInput = struct {
         }
     }
 
-    fn int_slice(
+    pub fn int_slice(
         self: *FuzzInput,
         comptime T: type,
         len: usize,
@@ -235,7 +235,7 @@ pub const FuzzInput = struct {
         return slice;
     }
 
-    fn int_slice_sentinel(
+    pub fn int_slice_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime Sentinel: T,
@@ -265,7 +265,7 @@ pub const FuzzInput = struct {
         return slice;
     }
 
-    fn auto_slice(
+    pub fn auto_slice(
         self: *FuzzInput,
         comptime T: type,
         len: usize,
@@ -295,7 +295,7 @@ pub const FuzzInput = struct {
         return slice;
     }
 
-    fn auto_slice_sentinel(
+    pub fn auto_slice_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime Sentinel: T,
@@ -313,7 +313,7 @@ pub const FuzzInput = struct {
         }
     }
 
-    fn auto_ptr(
+    pub fn auto_ptr(
         self: *FuzzInput,
         comptime T: type,
         alloc: Allocator,
@@ -327,7 +327,7 @@ pub const FuzzInput = struct {
         return p;
     }
 
-    fn auto_impl(
+    pub fn auto_impl(
         self: *FuzzInput,
         comptime T: type,
         alloc: Allocator,
