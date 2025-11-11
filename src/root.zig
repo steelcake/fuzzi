@@ -18,6 +18,19 @@ pub const Error = error{
     FuzzInputMaxRecursionDepthExceeded,
 };
 
+/// use like `try try_oom(alloc.alloc())`
+/// to convert the `OutOfMemory` error to `fuzzin.Error`
+pub fn try_oom(res: anytype) Error!@typeInfo(@TypeOf(res)).error_union.payload {
+    if (@typeInfo(@TypeOf(res)).error_union.error_set != error{OutOfMemory}) {
+        @compileError("try_oom is only supported for functions that error with OutOfMemory only.");
+    }
+    return res catch |e| {
+        switch (e) {
+            error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+        }
+    };
+}
+
 /// Structured fuzz input generator. Creates valid (as far as the language type system goes)
 ///     instances requested types.
 ///
@@ -191,11 +204,7 @@ pub const FuzzInput = struct {
             return Error.FuzzInputTooShort;
         }
 
-        const slice = alloc.alloc(T, len) catch |e| {
-            switch (e) {
-                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
-            }
-        };
+        const slice = try try_oom(alloc.alloc(T, len));
 
         @memcpy(
             @as([]u8, @ptrCast(slice)),
@@ -220,11 +229,7 @@ pub const FuzzInput = struct {
             return Error.FuzzInputTooShort;
         }
 
-        const slice = alloc.allocSentinel(T, len, Sentinel) catch |e| {
-            switch (e) {
-                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
-            }
-        };
+        const slice = try try_oom(alloc.allocSentinel(T, len, Sentinel));
         @memcpy(
             @as([]u8, @ptrCast(slice)),
             self.input[0..needed_bytes],
@@ -258,11 +263,7 @@ pub const FuzzInput = struct {
             else => {},
         }
 
-        const slice = alloc.alloc(T, len) catch |e| {
-            switch (e) {
-                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
-            }
-        };
+        const slice = try try_oom(alloc.alloc(T, len));
 
         for (0..len) |idx| {
             slice[idx] = try self.auto_impl(
@@ -300,11 +301,7 @@ pub const FuzzInput = struct {
         max_depth: u8,
         depth: u8,
     ) Error!*T {
-        const p = alloc.create(T) catch |e| {
-            switch (e) {
-                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
-            }
-        };
+        const p = try try_oom(alloc.create(T));
 
         p.* = try self.auto_impl(T, alloc, max_depth, depth + 1);
 
