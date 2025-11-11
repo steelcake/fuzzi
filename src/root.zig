@@ -4,17 +4,6 @@ const DebugAllocator = std.heap.DebugAllocator;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const Prng = std.Random.DefaultPrng;
 
-/// Use a separate error type internally so it is easy to coerce from OutOfMemory or similar errors.
-/// Map it to public error type so we can safely ignore fuzzin.Error at the end of fuzzing.
-///
-/// If we don't do this user might do something like `try alloc.alloc()` in their fuzz function
-///     and we would ignore the potential OutOfMemory silently because we are ignoring this error set.
-const InternalErr = error{
-    OutOfMemory,
-    InputTooShort,
-    MaxRecursionDepthExceeded,
-};
-
 /// Errors that can happen when generating structured fuzz input.
 /// These are intended to be transparently passed on so the fuzzing process
 /// can ignore these errors and continue.
@@ -45,13 +34,7 @@ pub const FuzzInput = struct {
         alloc: Allocator,
         max_depth: u8,
     ) Error!T {
-        return self.auto_impl(T, alloc, max_depth, 0) catch |e| {
-            return switch (e) {
-                InternalErr.MaxRecursionDepthExceeded => Error.FuzzInputMaxRecursionDepthExceeded,
-                InternalErr.OutOfMemory => Error.FuzzInputOutOfMemory,
-                InternalErr.InputTooShort => Error.FuzzInputTooShort,
-            };
-        };
+        return try self.auto_impl(T, alloc, max_depth, 0);
     }
 
     /// Consume the next `len` bytes from fuzz input
@@ -74,10 +57,10 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    fn int(self: *FuzzInput, comptime T: type) InternalErr!T {
+    fn int(self: *FuzzInput, comptime T: type) Error!T {
         const size = @sizeOf(T);
         if (self.input.len < size) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
         const out: T = @bitCast(@as(*const [size]u8, @ptrCast(self.input.ptr)).*);
@@ -86,27 +69,27 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    fn float64(self: *FuzzInput) InternalErr!f64 {
+    fn float64(self: *FuzzInput) Error!f64 {
         const seed = try self.int(u64);
         var prng = Prng.init(seed);
         return prng.random().float(f64);
     }
 
-    fn float(self: *FuzzInput, comptime T: type) InternalErr!T {
+    fn float(self: *FuzzInput, comptime T: type) Error!T {
         const f = try self.float64();
         return @floatCast(f);
     }
 
-    fn boolean(self: *FuzzInput) InternalErr!bool {
+    fn boolean(self: *FuzzInput) Error!bool {
         if (self.input.len == 0) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
         const byte = self.input.ptr[0];
         self.input = self.input[1..];
         return byte % 2 == 0;
     }
 
-    fn slice_len(self: *FuzzInput, comptime ElemT: type) InternalErr!usize {
+    fn slice_len(self: *FuzzInput, comptime ElemT: type) Error!usize {
         const len = try self.int(usize);
 
         if (@sizeOf(ElemT) == 0) {
@@ -114,7 +97,7 @@ pub const FuzzInput = struct {
         }
 
         if (@sizeOf(ElemT) > self.input.len) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
         return len % (self.input.len / @sizeOf(ElemT));
@@ -124,10 +107,10 @@ pub const FuzzInput = struct {
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
-    ) InternalErr![N]T {
+    ) Error![N]T {
         const needed_bytes = @sizeOf(T) * N;
         if (self.input.len < needed_bytes) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
         const out: [needed_bytes]u8 align(@sizeOf(T)) = @as(
@@ -144,10 +127,10 @@ pub const FuzzInput = struct {
         comptime T: type,
         comptime N: comptime_int,
         comptime Sentinel: T,
-    ) InternalErr![N:Sentinel]T {
+    ) Error![N:Sentinel]T {
         const needed_bytes = @sizeOf(T) * N;
         if (self.input.len < needed_bytes) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
         var out: [N:Sentinel]T = undefined;
@@ -171,7 +154,7 @@ pub const FuzzInput = struct {
         alloc: Allocator,
         max_depth: u8,
         depth: u8,
-    ) InternalErr![N]T {
+    ) Error![N]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array(T, N),
             else => {},
@@ -189,7 +172,7 @@ pub const FuzzInput = struct {
         comptime T: type,
         comptime N: comptime_int,
         comptime Sentinel: T,
-    ) InternalErr![N:Sentinel]T {
+    ) Error![N:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_array_sentinel(T, N, Sentinel),
             else => @compileError("sentinels aren't supported for non-integer arrays"),
@@ -201,14 +184,19 @@ pub const FuzzInput = struct {
         comptime T: type,
         len: usize,
         alloc: Allocator,
-    ) InternalErr![]T {
+    ) Error![]T {
         const needed_bytes = @sizeOf(T) * len;
 
         if (needed_bytes > self.input.len) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
-        const slice = try alloc.alloc(T, len);
+        const slice = alloc.alloc(T, len) catch |e| {
+            switch (e) {
+                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+            }
+        };
+
         @memcpy(
             @as([]u8, @ptrCast(slice)),
             self.input[0..needed_bytes],
@@ -225,14 +213,18 @@ pub const FuzzInput = struct {
         comptime Sentinel: T,
         len: usize,
         alloc: Allocator,
-    ) InternalErr![:Sentinel]T {
+    ) Error![:Sentinel]T {
         const needed_bytes = @sizeOf(T) * len;
 
         if (needed_bytes > self.input.len) {
-            return InternalErr.InputTooShort;
+            return Error.FuzzInputTooShort;
         }
 
-        const slice = try alloc.allocSentinel(T, len, Sentinel);
+        const slice = alloc.allocSentinel(T, len, Sentinel) catch |e| {
+            switch (e) {
+                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+            }
+        };
         @memcpy(
             @as([]u8, @ptrCast(slice)),
             self.input[0..needed_bytes],
@@ -256,7 +248,7 @@ pub const FuzzInput = struct {
         alloc: Allocator,
         max_depth: u8,
         depth: u8,
-    ) InternalErr![]T {
+    ) Error![]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_slice(
                 T,
@@ -266,7 +258,12 @@ pub const FuzzInput = struct {
             else => {},
         }
 
-        const slice = try alloc.alloc(T, len);
+        const slice = alloc.alloc(T, len) catch |e| {
+            switch (e) {
+                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+            }
+        };
+
         for (0..len) |idx| {
             slice[idx] = try self.auto_impl(
                 T,
@@ -284,7 +281,7 @@ pub const FuzzInput = struct {
         comptime Sentinel: T,
         len: usize,
         alloc: Allocator,
-    ) InternalErr![:Sentinel]T {
+    ) Error![:Sentinel]T {
         switch (@typeInfo(T)) {
             .int => return try self.int_slice_sentinel(
                 T,
@@ -302,8 +299,13 @@ pub const FuzzInput = struct {
         alloc: Allocator,
         max_depth: u8,
         depth: u8,
-    ) InternalErr!*T {
-        const p = try alloc.create(T);
+    ) Error!*T {
+        const p = alloc.create(T) catch |e| {
+            switch (e) {
+                error.OutOfMemory => return Error.FuzzInputOutOfMemory,
+            }
+        };
+
         p.* = try self.auto_impl(T, alloc, max_depth, depth + 1);
 
         return p;
@@ -315,9 +317,9 @@ pub const FuzzInput = struct {
         alloc: Allocator,
         max_depth: u8,
         depth: u8,
-    ) InternalErr!T {
+    ) Error!T {
         if (depth >= max_depth) {
-            return InternalErr.MaxRecursionDepthExceeded;
+            return Error.FuzzInputMaxRecursionDepthExceeded;
         }
 
         switch (@typeInfo(T)) {
