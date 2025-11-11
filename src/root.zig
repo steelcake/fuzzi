@@ -57,7 +57,7 @@ pub const FuzzInput = struct {
         return out;
     }
 
-    fn int(self: *FuzzInput, comptime T: type) Error!T {
+    pub fn int(self: *FuzzInput, comptime T: type) Error!T {
         const size = @sizeOf(T);
         if (self.input.len < size) {
             return Error.FuzzInputTooShort;
@@ -75,12 +75,12 @@ pub const FuzzInput = struct {
         return prng.random().float(f64);
     }
 
-    fn float(self: *FuzzInput, comptime T: type) Error!T {
+    pub fn float(self: *FuzzInput, comptime T: type) Error!T {
         const f = try self.float64();
         return @floatCast(f);
     }
 
-    fn boolean(self: *FuzzInput) Error!bool {
+    pub fn boolean(self: *FuzzInput) Error!bool {
         if (self.input.len == 0) {
             return Error.FuzzInputTooShort;
         }
@@ -89,7 +89,7 @@ pub const FuzzInput = struct {
         return byte % 2 == 0;
     }
 
-    fn slice_len(self: *FuzzInput, comptime ElemT: type) Error!usize {
+    pub fn slice_len(self: *FuzzInput, comptime ElemT: type) Error!usize {
         const len = try self.int(usize);
 
         if (@sizeOf(ElemT) == 0) {
@@ -100,10 +100,10 @@ pub const FuzzInput = struct {
             return Error.FuzzInputTooShort;
         }
 
-        return len % (self.input.len / @sizeOf(ElemT));
+        return (len % (self.input.len / @sizeOf(ElemT))) / 2;
     }
 
-    fn int_array(
+    pub fn int_array(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
@@ -122,7 +122,7 @@ pub const FuzzInput = struct {
         return @bitCast(out);
     }
 
-    fn int_array_sentinel(
+    pub fn int_array_sentinel(
         self: *FuzzInput,
         comptime T: type,
         comptime N: comptime_int,
