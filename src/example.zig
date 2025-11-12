@@ -87,7 +87,11 @@ fn fuzz_fuzz(
     // This is the intended allocation scheme for calling `FuzzInput.auto`.
     var arena = ArenaAllocator.init(dbg_alloc);
     defer arena.deinit();
-    const alloc = arena.allocator();
+
+    // We are limiting the maximum allocation that can be done through this arena allocator to
+    // 512KB which is half of our total budget. Since we configured 1MB of memory limit on the `dbg_alloc`
+    var limited_alloc = fuzzin.LimitedAllocator.init(arena.allocator(), 1 << 9);
+    const alloc = limited_alloc.allocator();
 
     const t = try input.auto(FuzzType, alloc, MAX_INPUT_DEPTH);
 

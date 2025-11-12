@@ -4,6 +4,8 @@ const DebugAllocator = std.heap.DebugAllocator;
 const FixedBufferAllocator = std.heap.FixedBufferAllocator;
 const Prng = std.Random.DefaultPrng;
 
+pub const LimitedAllocator = @import("./LimitedAllocator.zig");
+
 /// Errors that can happen when generating structured fuzz input.
 /// These are intended to be transparently passed on so the fuzzing process
 /// can ignore these errors and continue.
